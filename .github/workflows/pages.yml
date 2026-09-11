@@ -1,0 +1,64 @@
+# Veroeffentlicht die Weboberflaeche auf GitHub Pages.
+#
+# Bewusst KEIN Nachrechnen der Profile: der Kacheldownload sind mehrere
+# Gigabyte und gehoert nicht in eine CI. Committet wird nur das fertige
+# data/horizons.min.json aus Schritt 6.
+name: Weboberflaeche veroeffentlichen
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'data/horizons.min.json'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  bauen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Profile pruefen
+        run: |
+          if [ ! -f data/horizons.min.json ]; then
+            echo "data/horizons.min.json fehlt."
+            echo "Lokal erzeugen: python scripts/06_publish.py --bundle"
+            exit 1
+          fi
+          python3 -c "
+          import json
+          d = json.load(open('data/horizons.min.json'))
+          n = len(d['benches'])
+          assert n, 'Bundle enthaelt keine Baenke'
+          for bank in d['benches'].values():
+              assert len(bank['h']) == 480, 'Profil hat falsche Laenge'
+          print(f'{n} Profile, Version {d[\"version\"]}')
+          "
+
+      - name: Seite zusammenstellen
+        run: bash scripts/build_site.sh
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  veroeffentlichen:
+    needs: bauen
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

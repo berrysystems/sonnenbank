@@ -1,0 +1,9 @@
+numpy>=1.26
+lxml>=5.0
+shapely>=2.0
+pyproj>=3.6
+rasterio>=1.3
+# nur fuer Schritt 1 (Firestore):
+firebase-admin>=6.5
+# nur fuer 05_validate.py --plot:
+matplotlib>=3.8

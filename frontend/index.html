@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sonne an der Bank</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --schiefer:#22272A; --schiefer-hell:#333A3E;
+  --kalk:#E9EAE4; --papier:#F6F6F2;
+  --tanne:#2E4739; --sonne:#F2B705; --stein:#8A9098;
+  --spur:rgba(34,39,42,.14);
+  --serifen:"Bricolage Grotesque",-apple-system,"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  font-family:var(--serifen); background:var(--kalk); color:var(--schiefer);
+  font-size:16px; line-height:1.5; font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
+}
+.huelle{max-width:1180px;margin:0 auto;padding:24px 20px 64px}
+
+/* Kopf */
+.kopf{display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;
+  justify-content:space-between;margin-bottom:22px}
+.kopf h1{font-size:clamp(26px,4.2vw,38px);font-weight:800;letter-spacing:-.02em;
+  margin:0;line-height:1.05}
+.kopf p{margin:0;color:var(--stein);font-size:14px;max-width:34ch}
+
+/* Layout */
+.raster{display:grid;grid-template-columns:280px 1fr;gap:22px;align-items:start}
+@media(max-width:860px){.raster{grid-template-columns:1fr}}
+
+/* Bankliste */
+.liste{background:var(--papier);border:1px solid var(--spur);border-radius:4px;
+  overflow:hidden}
+.suche{width:100%;border:0;border-bottom:1px solid var(--spur);padding:12px 14px;
+  font:inherit;font-size:14px;background:transparent;color:inherit}
+.suche:focus{outline:2px solid var(--tanne);outline-offset:-2px}
+.rolle{max-height:min(58vh,520px);overflow-y:auto}
+.bank{display:flex;gap:10px;align-items:center;width:100%;text-align:left;
+  border:0;background:transparent;font:inherit;padding:11px 14px;cursor:pointer;
+  border-bottom:1px solid var(--spur);color:inherit}
+.bank:hover{background:#EDEEE8}
+.bank[aria-current="true"]{background:var(--schiefer);color:var(--papier)}
+.bank:focus-visible{outline:2px solid var(--tanne);outline-offset:-2px}
+.punkt{width:9px;height:9px;border-radius:50%;flex:none;background:var(--stein)}
+.punkt.sonne{background:var(--sonne)}
+.bank .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;font-size:14px}
+.bank .std{font-size:12px;color:var(--stein);flex:none}
+.bank[aria-current="true"] .std{color:#9AA1A6}
+
+/* Panorama */
+.buehne{background:var(--schiefer);border-radius:4px;overflow:hidden;
+  position:relative}
+#panorama{display:block;width:100%;height:auto}
+.marke{position:absolute;left:14px;top:12px;color:#fff;opacity:.62;
+  font-size:12px;letter-spacing:.08em}
+
+/* Status */
+.stand{display:flex;flex-wrap:wrap;gap:6px 26px;align-items:baseline;
+  margin:16px 2px 4px}
+.stand .satz{font-size:clamp(20px,3vw,27px);font-weight:600;letter-spacing:-.015em;
+  margin:0}
+.stand .neben{color:var(--stein);font-size:14px}
+
+/* Zeitregler */
+.regler{margin-top:18px;display:flex;gap:14px;align-items:center}
+.regler input[type=range]{flex:1;accent-color:var(--tanne);height:22px}
+.uhr{font-size:19px;font-weight:600;min-width:4.4ch}
+.jetzt{border:1px solid var(--schiefer);background:transparent;color:inherit;
+  font:inherit;font-size:13px;padding:5px 12px;border-radius:2px;cursor:pointer}
+.jetzt:hover{background:var(--schiefer);color:var(--papier)}
+.jetzt:focus-visible{outline:2px solid var(--tanne);outline-offset:2px}
+
+/* Tagesband */
+.band{margin-top:20px}
+.band .schiene{display:flex;height:26px;border-radius:2px;overflow:hidden;
+  border:1px solid var(--spur)}
+.band .schiene i{display:block}
+.band .achse{display:flex;justify-content:space-between;color:var(--stein);
+  font-size:12px;margin-top:5px}
+
+/* Kennzahlen */
+.zahlen{display:flex;flex-wrap:wrap;gap:28px;margin-top:22px;
+  border-top:1px solid var(--spur);padding-top:16px}
+.zahlen div{min-width:110px}
+.zahlen b{display:block;font-size:22px;font-weight:600;letter-spacing:-.01em}
+.zahlen span{color:var(--stein);font-size:13px}
+
+/* Ladezustand */
+.leer{background:var(--papier);border:1px solid var(--spur);border-radius:4px;
+  padding:26px;max-width:60ch}
+.leer h2{margin:0 0 10px;font-size:19px;font-weight:600}
+.leer p{margin:0 0 12px;font-size:15px;color:#4A5155}
+.leer code{background:#E3E4DE;padding:2px 6px;border-radius:2px;font-size:13px}
+.leer label{display:inline-block;margin-top:6px;border:1px solid var(--schiefer);
+  padding:8px 14px;border-radius:2px;cursor:pointer;font-size:14px}
+.leer label:hover{background:var(--schiefer);color:var(--papier)}
+.leer input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
+.fehler{color:#8C2F26;font-size:14px;margin-top:12px}
+.versteckt{display:none}
+@media(prefers-reduced-motion:no-preference){
+  #sonnenscheibe{transition:cx .12s linear,cy .12s linear}
+}
+</style>
+</head>
+<body>
+<div class="huelle">
+
+<header class="kopf">
+  <h1>Sonne an der Bank</h1>
+  <p>Berechnet aus LoD2-Gebäuden und dem DGM1 des Landes NRW. Zieh den Regler,
+     um den Tag abzufahren.</p>
+</header>
+
+<section id="start" class="leer">
+  <h2>Horizontprofile laden</h2>
+  <p>Diese Seite braucht <code>data/horizons.json</code> aus Schritt 4. Am
+     einfachsten startest du im Projektordner einen kleinen Server:</p>
+  <p><code>python -m http.server 8000</code> &nbsp;→&nbsp;
+     <code>localhost:8000/frontend/</code></p>
+  <p>Oder wähle die Dateien direkt aus:</p>
+  <label>
+    horizons.json wählen
+    <input type="file" id="dateiwahl" accept=".json" multiple>
+  </label>
+  <p id="fehlertext" class="fehler versteckt"></p>
+</section>
+
+<main id="ansicht" class="raster versteckt">
+  <aside class="liste">
+    <input class="suche" id="suche" type="search" placeholder="Bank suchen"
+           aria-label="Bank suchen">
+    <div class="rolle" id="rolle" role="listbox" aria-label="Bänke"></div>
+  </aside>
+
+  <section>
+    <div class="buehne">
+      <svg id="panorama" viewBox="0 0 1000 330" role="img"
+           aria-label="Horizontsilhouette mit Sonnenbahn"></svg>
+      <div class="marke" id="marke"></div>
+    </div>
+
+    <div class="stand">
+      <p class="satz" id="satz"></p>
+      <span class="neben" id="neben"></span>
+    </div>
+
+    <div class="regler">
+      <span class="uhr" id="uhr">–</span>
+      <input type="range" id="zeit" min="0" max="1439" step="1"
+             aria-label="Uhrzeit">
+      <button class="jetzt" id="jetzt">Jetzt</button>
+    </div>
+
+    <div class="band">
+      <div class="schiene" id="schiene"></div>
+      <div class="achse"><span>0</span><span>6</span><span>12</span>
+        <span>18</span><span>24 Uhr</span></div>
+    </div>
+
+    <div class="zahlen">
+      <div><b id="z-stunden">–</b><span>Sonne heute</span></div>
+      <div><b id="z-hoehe">–</b><span>Sonnenhöhe</span></div>
+      <div><b id="z-horizont">–</b><span>Horizont in dieser Richtung</span></div>
+      <div><b id="z-verdeckung">–</b><span>höchste Verdeckung</span></div>
+    </div>
+  </section>
+</main>
+</div>
+
+<script type="module">
+import { istSonnig, sonnenstand, refraktion, horizontBei, tagesverlauf,
+         naechsterWechsel, sonnenstunden, dekodiereHorizont } from './sonnenbank.js';
+
+const $ = (id) => document.getElementById(id);
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const W = 1000, H = 330, MAX_EL = 62;      // sichtbarer Höhenbereich in Grad
+
+let baenke = [];      // [{id, name, profil, lat, lon, ...}]
+let aktiv = null;
+let minute = new Date().getHours() * 60 + new Date().getMinutes();
+let folgtUhr = true;
+
+/* ---------------------------------------------------------------- Daten */
+
+const holen = (pfad) =>
+  fetch(pfad).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+
+async function laden() {
+  // Bevorzugt das kompakte Bundle aus Schritt 6, sonst die volle horizons.json
+  for (const pfad of ['./horizons.min.json', '../data/horizons.min.json',
+                      '../data/horizons.json']) {
+    try {
+      const inhalt = await holen(pfad);
+      const meta = await holen('../data/benches.json').catch(() => []);
+      starten(inhalt, meta);
+      return;
+    } catch { /* naechsten Pfad versuchen */ }
+  }
+  $('start').classList.remove('versteckt');
+}
+
+$('dateiwahl').addEventListener('change', async (ereignis) => {
+  let horizonte = null, meta = [];
+  for (const datei of ereignis.target.files) {
+    const inhalt = JSON.parse(await datei.text());
+    if (Array.isArray(inhalt)) meta = inhalt;
+    else horizonte = inhalt;
+  }
+  if (!horizonte) {
+    const feld = $('fehlertext');
+    feld.textContent = 'In der Auswahl war keine horizons.json. '
+      + 'Erwartet wird ein Objekt mit einer Bank-ID je Eintrag.';
+    feld.classList.remove('versteckt');
+    return;
+  }
+  starten(horizonte, meta);
+});
+
+function starten(horizonte, meta) {
+  const namen = new Map(meta.map((m) => [m.id, m.title || m.address]));
+
+  // Kompaktes Bundle: { version, benches: { id: { h, lat, lon } } }
+  if (horizonte && horizonte.benches) horizonte = horizonte.benches;
+
+  baenke = Object.entries(horizonte).map(([id, eintrag]) => ({
+    id,
+    name: namen.get(id) || id,
+    profil: eintrag.h ? dekodiereHorizont(eintrag.h) : eintrag.horizont,
+    lat: eintrag.lat,
+    lon: eintrag.lon,
+    maxGebaeude: eintrag.max_gebaeude,
+    maxGelaende: eintrag.max_gelaende,
+  })).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+
+  if (!baenke.length) return;
+
+  $('start').classList.add('versteckt');
+  $('ansicht').classList.remove('versteckt');
+  listeZeichnen();
+  waehlen(baenke[0].id);
+  setInterval(() => { if (folgtUhr) jetztSetzen(); }, 30000);
+}
+
+/* ---------------------------------------------------------------- Liste */
+
+function listeZeichnen() {
+  const filter = $('suche').value.trim().toLowerCase();
+  const heute = new Date();
+  const rolle = $('rolle');
+  rolle.textContent = '';
+
+  for (const bank of baenke) {
+    if (filter && !bank.name.toLowerCase().includes(filter)) continue;
+
+    const zeit = zeitpunkt();
+    const zustand = istSonnig(bank.profil, bank.lat, bank.lon, zeit);
+    const stunden = sonnenstunden(bank.profil, bank.lat, bank.lon, heute);
+
+    const knopf = document.createElement('button');
+    knopf.className = 'bank';
+    knopf.type = 'button';
+    knopf.setAttribute('role', 'option');
+    knopf.setAttribute('aria-current', String(bank.id === aktiv));
+    knopf.innerHTML =
+      `<span class="punkt${zustand.sonnig ? ' sonne' : ''}"></span>`
+      + `<span class="name"></span>`
+      + `<span class="std">${stunden.toFixed(1)} h</span>`;
+    knopf.querySelector('.name').textContent = bank.name;
+    knopf.addEventListener('click', () => waehlen(bank.id));
+    rolle.appendChild(knopf);
+  }
+}
+
+$('suche').addEventListener('input', listeZeichnen);
+
+function waehlen(id) {
+  aktiv = id;
+  listeZeichnen();
+  zeichnen();
+}
+
+/* ---------------------------------------------------------------- Zeit */
+
+function zeitpunkt() {
+  const t = new Date();
+  t.setHours(Math.floor(minute / 60), minute % 60, 0, 0);
+  return t;
+}
+
+function jetztSetzen() {
+  const t = new Date();
+  minute = t.getHours() * 60 + t.getMinutes();
+  folgtUhr = true;
+  $('zeit').value = minute;
+  zeichnen();
+  listeZeichnen();
+}
+
+$('zeit').addEventListener('input', (e) => {
+  minute = Number(e.target.value);
+  folgtUhr = false;
+  zeichnen();
+});
+$('jetzt').addEventListener('click', jetztSetzen);
+
+/* ---------------------------------------------------------------- Zeichnen */
+
+const xVonAzimut = (az) => (((az % 360) + 360) % 360) / 360 * W;
+const yVonHoehe = (h) => H - Math.max(h, -6) / MAX_EL * H;
+
+function himmelsfarben(hoehe) {
+  if (hoehe > 12) return ['#3E6B8C', '#7FA8BE'];
+  if (hoehe > 0) return ['#3B4E6B', '#C98A52'];
+  if (hoehe > -8) return ['#2A3347', '#6A5570'];
+  return ['#1A1F2B', '#2B3340'];
+}
+
+function zeichnen() {
+  const bank = baenke.find((b) => b.id === aktiv);
+  if (!bank) return;
+
+  const zeit = zeitpunkt();
+  const { azimut, hoehe } = sonnenstand(zeit, bank.lat, bank.lon);
+  const sichtbar = hoehe + refraktion(hoehe);
+  const zustand = istSonnig(bank.profil, bank.lat, bank.lon, zeit);
+
+  const svg = $('panorama');
+  svg.textContent = '';
+  const [oben, unten] = himmelsfarben(sichtbar);
+
+  svg.insertAdjacentHTML('beforeend', `
+    <defs>
+      <linearGradient id="himmel" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${oben}"/>
+        <stop offset="1" stop-color="${unten}"/>
+      </linearGradient>
+      <radialGradient id="schein">
+        <stop offset="0" stop-color="#F2B705" stop-opacity=".55"/>
+        <stop offset="1" stop-color="#F2B705" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="${W}" height="${H}" fill="url(#himmel)"/>`);
+
+  // Höhenlinien alle 15 Grad
+  for (let g = 15; g < MAX_EL - 12; g += 15) {
+    linie(svg, 0, yVonHoehe(g), W, yVonHoehe(g), '#fff', .13);
+    text(svg, 6, yVonHoehe(g) - 5, `${g}°`, '#fff', .4, 11);
+  }
+
+  // Himmelsrichtungen
+  for (const [az, name] of [[0,'N'],[45,'NO'],[90,'O'],[135,'SO'],[180,'S'],
+                            [225,'SW'],[270,'W'],[315,'NW']]) {
+    const x = xVonAzimut(az);
+    linie(svg, x, 0, x, H, '#fff', az % 90 === 0 ? .22 : .1);
+    text(svg, x + 5, 18, name, '#fff', az % 90 === 0 ? .75 : .45, 12);
+  }
+
+  // Sonnenbahn des Tages
+  const bahn = [];
+  for (let m = 0; m <= 1440; m += 4) {
+    const t = new Date(zeit); t.setHours(Math.floor(m / 60), m % 60, 0, 0);
+    const s = sonnenstand(t, bank.lat, bank.lon);
+    if (s.hoehe > -6) bahn.push([xVonAzimut(s.azimut), yVonHoehe(s.hoehe)]);
+  }
+  // Springt das Azimut über 360 Grad, den Pfad trennen
+  let stueck = [];
+  for (let i = 0; i < bahn.length; i++) {
+    if (i && Math.abs(bahn[i][0] - bahn[i-1][0]) > W / 2) {
+      pfad(svg, stueck); stueck = [];
+    }
+    stueck.push(bahn[i]);
+  }
+  pfad(svg, stueck);
+
+  // Horizontsilhouette
+  let d = `M0 ${H}`;
+  for (let az = 0; az <= 360; az++) {
+    d += ` L${xVonAzimut(az === 360 ? 359.999 : az).toFixed(2)} `
+       + `${yVonHoehe(bank.profil[az % 360] / 10).toFixed(2)}`;
+  }
+  d += ` L${W} ${H} Z`;
+  const silhouette = document.createElementNS(SVG_NS, 'path');
+  silhouette.setAttribute('d', d);
+  silhouette.setAttribute('fill', '#191D20');
+  silhouette.setAttribute('fill-opacity', '.94');
+  svg.appendChild(silhouette);
+
+  // Sonne
+  if (sichtbar > -6) {
+    const sx = xVonAzimut(azimut), sy = yVonHoehe(sichtbar);
+    if (zustand.sonnig) kreis(svg, sx, sy, 62, 'url(#schein)');
+    const scheibe = kreis(svg, sx, sy, 11,
+      zustand.sonnig ? '#FFD64A' : '#6E757A');
+    scheibe.id = 'sonnenscheibe';
+    scheibe.setAttribute('stroke', zustand.sonnig ? '#F2B705' : '#4C5358');
+    scheibe.setAttribute('stroke-width', '2');
+  }
+
+  $('marke').textContent = bank.name;
+  standTexte(bank, zustand, sichtbar, azimut, zeit);
+  bandZeichnen(bank, zeit);
+}
+
+function standTexte(bank, zustand, sichtbar, azimut, zeit) {
+  const uhrzeit = zeit.toLocaleTimeString('de-DE',
+    { hour: '2-digit', minute: '2-digit' });
+  $('uhr').textContent = uhrzeit;
+
+  const wechsel = naechsterWechsel(bank.profil, bank.lat, bank.lon, zeit);
+  const bis = wechsel
+    ? wechsel.zeitpunkt.toLocaleTimeString('de-DE',
+        { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  if (sichtbar <= 0) {
+    $('satz').textContent = 'Die Sonne ist unter';
+    $('neben').textContent = bis ? `Sonnenaufgang um ${bis}` : '';
+  } else if (zustand.sonnig) {
+    $('satz').textContent = 'In der Sonne';
+    $('neben').textContent = bis ? `Schatten ab ${bis}` : 'bis Sonnenuntergang';
+  } else {
+    $('satz').textContent = 'Im Schatten';
+    $('neben').textContent = bis ? `Sonne ab ${bis}` : 'den ganzen Tag';
+  }
+
+  $('z-stunden').textContent =
+    sonnenstunden(bank.profil, bank.lat, bank.lon, zeit).toFixed(1) + ' h';
+  $('z-hoehe').textContent = sichtbar > 0 ? sichtbar.toFixed(1) + '°' : '–';
+  $('z-horizont').textContent =
+    horizontBei(bank.profil, azimut).toFixed(1) + '°';
+  $('z-verdeckung').textContent =
+    Math.max(bank.maxGebaeude ?? 0, bank.maxGelaende ?? 0).toFixed(1) + '°';
+}
+
+function bandZeichnen(bank, zeit) {
+  const schiene = $('schiene');
+  schiene.textContent = '';
+  for (const phase of tagesverlauf(bank.profil, bank.lat, bank.lon, zeit, 4)) {
+    const anteil = (phase.bis - phase.von) / 86400000 * 100;
+    const teil = document.createElement('i');
+    teil.style.width = anteil + '%';
+    teil.style.background = phase.sonnig ? 'var(--sonne)' : 'var(--schiefer-hell)';
+    const von = phase.von.toLocaleTimeString('de-DE',
+      { hour: '2-digit', minute: '2-digit' });
+    const nach = phase.bis.toLocaleTimeString('de-DE',
+      { hour: '2-digit', minute: '2-digit' });
+    teil.title = `${phase.sonnig ? 'Sonne' : 'Schatten'} ${von}–${nach}`;
+    schiene.appendChild(teil);
+  }
+}
+
+/* ---------------------------------------------------------------- SVG-Hilfen */
+
+function linie(svg, x1, y1, x2, y2, farbe, deckkraft) {
+  const el = document.createElementNS(SVG_NS, 'line');
+  el.setAttribute('x1', x1); el.setAttribute('y1', y1);
+  el.setAttribute('x2', x2); el.setAttribute('y2', y2);
+  el.setAttribute('stroke', farbe); el.setAttribute('stroke-opacity', deckkraft);
+  svg.appendChild(el);
+  return el;
+}
+
+function text(svg, x, y, inhalt, farbe, deckkraft, groesse) {
+  const el = document.createElementNS(SVG_NS, 'text');
+  el.setAttribute('x', x); el.setAttribute('y', y);
+  el.setAttribute('fill', farbe); el.setAttribute('fill-opacity', deckkraft);
+  el.setAttribute('font-size', groesse);
+  el.setAttribute('font-family', 'inherit');
+  el.textContent = inhalt;
+  svg.appendChild(el);
+}
+
+function kreis(svg, cx, cy, r, fuellung) {
+  const el = document.createElementNS(SVG_NS, 'circle');
+  el.setAttribute('cx', cx); el.setAttribute('cy', cy);
+  el.setAttribute('r', r); el.setAttribute('fill', fuellung);
+  svg.appendChild(el);
+  return el;
+}
+
+function pfad(svg, punkte) {
+  if (punkte.length < 2) return;
+  const el = document.createElementNS(SVG_NS, 'path');
+  el.setAttribute('d', 'M' + punkte.map(([x, y]) =>
+    `${x.toFixed(1)} ${y.toFixed(1)}`).join(' L'));
+  el.setAttribute('fill', 'none');
+  el.setAttribute('stroke', '#F2B705');
+  el.setAttribute('stroke-opacity', '.55');
+  el.setAttribute('stroke-width', '2');
+  el.setAttribute('stroke-dasharray', '5 4');
+  svg.appendChild(el);
+}
+
+$('zeit').value = minute;
+laden();
+</script>
+</body>
+</html>

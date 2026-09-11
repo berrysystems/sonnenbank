@@ -1,0 +1,17 @@
+# Zugangsdaten - niemals einchecken
+serviceAccountKey.json
+
+# Geobasisdaten und Zwischenergebnisse: mehrere Gigabyte, reproduzierbar
+data/lod2/
+data/dgm1/
+data/dem10m.tif
+data/benches.json
+data/horizons.json
+data/horizont_*.png
+
+# Das kompakte Bundle wird bewusst eingecheckt, es ist die Deploy-Grundlage
+!data/horizons.min.json
+
+__pycache__/
+*.pyc
+public/
