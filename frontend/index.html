@@ -228,14 +228,23 @@ let folgtUhr = true;
 const holen = (pfad) =>
   fetch(pfad).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
 
+// Beim statischen Hosting liegen die Titel neben der Seite, im Projektordner
+// dagegen unter data/. Beide Lagen werden versucht.
+async function titelHolen() {
+  for (const pfad of ['./benches.json', './benches.public.json',
+                      '../data/benches.public.json', '../data/benches.json']) {
+    try { return await holen(pfad); } catch { /* naechster Pfad */ }
+  }
+  return [];
+}
+
 async function laden() {
   // Bevorzugt das kompakte Bundle aus Schritt 6, sonst die volle horizons.json
   for (const pfad of ['./horizons.min.json', '../data/horizons.min.json',
                       '../data/horizons.json']) {
     try {
       const inhalt = await holen(pfad);
-      const meta = await holen('../data/benches.json').catch(() => []);
-      starten(inhalt, meta);
+      starten(inhalt, await titelHolen());
       return;
     } catch { /* naechsten Pfad versuchen */ }
   }
@@ -260,7 +269,10 @@ $('dateiwahl').addEventListener('change', async (ereignis) => {
 });
 
 function starten(horizonte, meta) {
-  const namen = new Map(meta.map((m) => [m.id, m.title || m.address]));
+  // title ist im Schema optional, address ist reverse-geocodet und taugt
+  // als Ersatz. Ganz ohne beides ist eine gekuerzte ID immer noch besser
+  // lesbar als eine 36-stellige UUID.
+  const namen = new Map(meta.map((m) => [m.id, m.title || m.address || null]));
   const richtungen = new Map(meta.map((m) => [m.id, m.bearing ?? null]));
 
   // Kompaktes Bundle: { version, benches: { id: { h, lat, lon } } }
@@ -268,16 +280,18 @@ function starten(horizonte, meta) {
 
   baenke = Object.entries(horizonte).map(([id, eintrag]) => ({
     id,
-    name: namen.get(id) || eintrag.title || eintrag.address || id,
+    name: namen.get(id) || eintrag.title || eintrag.address || kurzName(id),
+    ohneTitel: !(namen.get(id) || eintrag.title || eintrag.address),
     profil: eintrag.h ? dekodiereHorizont(eintrag.h) : eintrag.horizont,
     profilVeg: eintrag.v ? dekodiereHorizont(eintrag.v)
                          : (eintrag.horizont_veg || null),
     bearing: eintrag.b ?? eintrag.bearing ?? richtungen.get(id) ?? null,
     lat: eintrag.lat,
     lon: eintrag.lon,
-    maxGebaeude: eintrag.max_gebaeude,
-    maxGelaende: eintrag.max_gelaende,
-  })).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    maxGebaeude: eintrag.mb ?? eintrag.max_gebaeude ?? null,
+    maxGelaende: eintrag.mg ?? eintrag.max_gelaende ?? null,
+  })).sort((a, b) => (a.ohneTitel - b.ohneTitel)
+                  || a.name.localeCompare(b.name, 'de'));
 
   if (!baenke.length) return;
 
@@ -289,6 +303,10 @@ function starten(horizonte, meta) {
 }
 
 /* ---------------------------------------------------------------- Liste */
+
+function kurzName(id) {
+  return 'Bank ' + String(id).replace(/-/g, '').slice(0, 6).toUpperCase();
+}
 
 function listeZeichnen() {
   const filter = $('suche').value.trim().toLowerCase();
@@ -502,8 +520,10 @@ function standTexte(bank, zustand, sichtbar, azimut, zeit) {
   $('z-hoehe').textContent = sichtbar > 0 ? sichtbar.toFixed(1) + '\u00B0' : '\u2013';
   $('z-horizont').textContent =
     horizontBei(bank.profilVeg || bank.profil, azimut).toFixed(1) + '\u00B0';
+  const verdeckung = (bank.maxGebaeude === null && bank.maxGelaende === null)
+    ? null : Math.max(bank.maxGebaeude ?? 0, bank.maxGelaende ?? 0);
   $('z-verdeckung').textContent =
-    Math.max(bank.maxGebaeude ?? 0, bank.maxGelaende ?? 0).toFixed(1) + '\u00B0';
+    verdeckung === null ? '\u2013' : verdeckung.toFixed(1) + '\u00B0';
   $('z-bewuchs').textContent = bank.profilVeg
     ? gruen.toFixed(1) + ' h' : 'keine Daten';
 }

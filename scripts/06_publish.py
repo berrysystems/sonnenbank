@@ -89,6 +89,9 @@ def bundle(profile: dict) -> None:
             satz["v"] = kodieren(eintrag["horizont_veg"])
         if eintrag.get("bearing") is not None:
             satz["b"] = round(eintrag["bearing"])
+        for kurz, lang in (("mb", "max_gebaeude"), ("mg", "max_gelaende")):
+            if eintrag.get(lang) is not None:
+                satz[kurz] = round(eintrag[lang], 1)
         klein[bank_id] = satz
     nutzlast = {"version": cfg.HORIZONT_VERSION, "benches": klein}
     cfg.BUNDLE_FILE.write_text(
