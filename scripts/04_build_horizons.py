@@ -21,7 +21,7 @@ import rasterio  # noqa: E402
 from shapely.strtree import STRtree  # noqa: E402
 
 from citygml import gebaeude_laden  # noqa: E402
-from horizont import Gelaende, profil_berechnen  # noqa: E402
+from horizont import Gelaende, Vegetation, profil_berechnen  # noqa: E402
 
 
 def bodenhoehe_dgm1(e: float, n: float) -> float | None:
@@ -38,6 +38,8 @@ def bodenhoehe_dgm1(e: float, n: float) -> float | None:
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--limit", type=int, help="nur die ersten N Baenke rechnen")
+    p.add_argument("--ohne-vegetation", action="store_true",
+                   help="nDOM50 ignorieren, nur Gebaeude und Gelaende")
     args = p.parse_args()
 
     baenke = json.loads(cfg.BENCHES_FILE.read_text(encoding="utf-8"))
@@ -59,6 +61,16 @@ def main():
     print(f"  {len(polygone)} Gebaeude in {time.time() - t0:.0f} s")
     baum = STRtree(polygone) if polygone else STRtree([])
 
+    vegetation = None
+    if not args.ohne_vegetation:
+        vegetation = Vegetation(cfg.TILES_NDOM, cfg.VEG_RASTER,
+                                cfg.VEG_MIN_HOEHE, cfg.GEBAEUDE_PUFFER)
+        if vegetation.vorhanden:
+            print(f"Vegetation: {len(vegetation.kacheln)} nDOM50-Kacheln")
+        else:
+            print("Keine nDOM50-Kacheln gefunden, rechne ohne Bewuchs")
+            vegetation = None
+
     ergebnis, ohne_boden = {}, 0
     t0 = time.time()
     for i, b in enumerate(baenke, 1):
@@ -71,10 +83,14 @@ def main():
             continue
 
         profil = profil_berechnen(
-            b["e"], b["n"], float(boden), dem, polygone, hoehen, baum, cfg)
+            b["e"], b["n"], float(boden), dem, polygone, hoehen, baum, cfg,
+            vegetation)
         profil["lat"], profil["lon"] = b["lat"], b["lon"]
         if b.get("bearing") is not None:
             profil["bearing"] = b["bearing"]
+        for feld in ("title", "address"):
+            if b.get(feld):
+                profil[feld] = b[feld]
         ergebnis[b["id"]] = profil
 
         if i % 50 == 0 or i == len(baenke):
@@ -90,6 +106,12 @@ def main():
           f"({groesse / 1024:.0f} KB, {groesse / max(len(ergebnis), 1):.0f} B/Bank)")
     if ohne_boden:
         print(f"{ohne_boden} Baenke ohne 1-m-Kachel, 10-m-DEM benutzt")
+
+    mit_veg = [p for p in ergebnis.values() if "horizont_veg" in p]
+    if mit_veg:
+        anteil = sum(p["bewuchs_azimute"] for p in mit_veg) / len(mit_veg)
+        print(f"{len(mit_veg)} Profile mit Bewuchs, im Mittel {anteil:.0f} "
+              f"von 360 Richtungen zusaetzlich verdeckt")
 
 
 if __name__ == "__main__":

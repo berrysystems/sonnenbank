@@ -111,7 +111,13 @@ def gebaeudehorizont(e: float, n: float, obs_z: float,
 
 
 def profil_berechnen(e: float, n: float, boden_z: float, dem: Gelaende,
-                     polygone, hoehen, baum, cfg) -> dict:
+                     polygone, hoehen, baum, cfg, vegetation=None) -> dict:
+    """Zwei Profile: harter Horizont und zusaetzlich Bewuchs.
+
+    Getrennt gefuehrt, weil ein Baum kein Haus ist. Durch eine Krone kommt je
+    nach Art und Jahreszeit noch ein erheblicher Teil des Lichts, hinter einer
+    Wand kommt nichts. Die App kann daraus drei Zustaende machen statt zwei.
+    """
     obs_z = boden_z + cfg.AUGENHOEHE
 
     gelaende = gelaendehorizont(
@@ -123,13 +129,168 @@ def profil_berechnen(e: float, n: float, boden_z: float, dem: Gelaende,
         e, n, obs_z, polygone, hoehen, baum, cfg.RADIUS_GEBAEUDE,
     )
 
-    gesamt = np.maximum(gelaende, gebaeude)
-    gesamt = np.clip(gesamt, 0.0, 90.0)      # unter dem Horizont ist irrelevant
+    hart = np.clip(np.maximum(gelaende, gebaeude), 0.0, 90.0)
 
-    return {
-        "horizont": [int(round(w * 10)) for w in gesamt],   # Zehntelgrad
+    ergebnis = {
+        "horizont": [int(round(w * 10)) for w in hart],      # Zehntelgrad
         "boden_z": round(boden_z, 2),
         "augen_z": round(obs_z, 2),
         "max_gebaeude": round(float(gebaeude.max()), 2),
         "max_gelaende": round(float(gelaende.max()), 2),
     }
+
+    if vegetation is None or not vegetation.vorhanden:
+        return ergebnis
+
+    ausschnitt = vegetation.fenster(e, n, cfg.RADIUS_VEGETATION)
+    if ausschnitt is None:
+        return ergebnis
+
+    feld, x0, y_oben = ausschnitt
+    feld = vegetation.gebaeude_ausmaskieren(
+        feld, x0, y_oben, polygone, baum, e, n, cfg.RADIUS_VEGETATION)
+
+    bewuchs = vegetationshorizont(
+        e, n, obs_z, feld, x0, y_oben, vegetation.raster, dem,
+        cfg.RADIUS_VEGETATION, cfg.SCHRITT_VEGETATION)
+
+    mit_bewuchs = np.clip(np.maximum(hart, bewuchs), 0.0, 90.0)
+    ergebnis["horizont_veg"] = [int(round(w * 10)) for w in mit_bewuchs]
+    ergebnis["max_bewuchs"] = round(float(bewuchs.max()), 2)
+    # Wie viel Himmel nimmt der Bewuchs zusaetzlich weg?
+    ergebnis["bewuchs_azimute"] = int((bewuchs > hart + 0.5).sum())
+    return ergebnis
+
+
+class Vegetation:
+    """Liest das nDOM50 kachelweise als lokalen Ausschnitt um eine Bank.
+
+    Das nDOM enthaelt die Hoehe ueber Grund, also Vegetation UND Gebaeude.
+    Die Gebaeude kommen aber schon aus dem LoD2 und werden hier ausmaskiert,
+    sonst zaehlen sie doppelt - und zwar mit der ungenaueren Quelle.
+    """
+
+    def __init__(self, verzeichnis, raster: float = 1.0,
+                 min_hoehe: float = 2.0, puffer: float = 1.5):
+        self.raster = raster
+        self.min_hoehe = min_hoehe
+        self.puffer = puffer
+        self.kacheln = {}
+        for pfad in verzeichnis.glob("*.tif"):
+            teile = pfad.stem.split("_")
+            try:
+                self.kacheln[(int(teile[2]), int(teile[3]))] = pfad
+            except (IndexError, ValueError):
+                continue
+
+    @property
+    def vorhanden(self) -> bool:
+        return bool(self.kacheln)
+
+    def fenster(self, e: float, n: float, radius: float):
+        """Vegetationshoehen um (e, n). Rueckgabe (array, x0, y_oben) oder None."""
+        import rasterio
+        from rasterio.enums import Resampling
+        from rasterio.windows import from_bounds
+
+        res = self.raster
+        seite = int(round(2 * radius / res))
+        x0, y_oben = e - radius, n + radius
+        ausgabe = np.zeros((seite, seite), dtype="float32")
+        getroffen = False
+
+        o0, o1 = int((e - radius) // 1000), int((e + radius) // 1000)
+        n0, n1 = int((n - radius) // 1000), int((n + radius) // 1000)
+
+        for ost in range(o0, o1 + 1):
+            for nord in range(n0, n1 + 1):
+                pfad = self.kacheln.get((ost, nord))
+                if pfad is None:
+                    continue
+                kx0, ky0 = ost * 1000.0, nord * 1000.0
+                sx0, sy0 = max(x0, kx0), max(n - radius, ky0)
+                sx1, sy1 = min(e + radius, kx0 + 1000), min(y_oben, ky0 + 1000)
+                if sx1 <= sx0 or sy1 <= sy0:
+                    continue
+
+                spalte0 = int(round((sx0 - x0) / res))
+                spalte1 = int(round((sx1 - x0) / res))
+                zeile0 = int(round((y_oben - sy1) / res))
+                zeile1 = int(round((y_oben - sy0) / res))
+                if spalte1 <= spalte0 or zeile1 <= zeile0:
+                    continue
+
+                with rasterio.open(pfad) as src:
+                    block = src.read(
+                        1,
+                        window=from_bounds(sx0, sy0, sx1, sy1, src.transform),
+                        out_shape=(zeile1 - zeile0, spalte1 - spalte0),
+                        # Maximum statt Mittelwert: ein schmaler Baum darf beim
+                        # Vergroebern nicht weggemittelt werden
+                        resampling=Resampling.max,
+                        boundless=True,
+                        fill_value=0,
+                        masked=True,
+                    ).filled(0).astype("float32")
+
+                ausgabe[zeile0:zeile1, spalte0:spalte1] = np.maximum(
+                    ausgabe[zeile0:zeile1, spalte0:spalte1], block)
+                getroffen = True
+
+        if not getroffen:
+            return None
+
+        ausgabe[~np.isfinite(ausgabe)] = 0.0
+        ausgabe[ausgabe < self.min_hoehe] = 0.0
+        ausgabe[ausgabe > 60.0] = 0.0        # Artefakte des Bildmatchings
+        return ausgabe, x0, y_oben
+
+    def gebaeude_ausmaskieren(self, feld, x0: float, y_oben: float,
+                              polygone, baum, e: float, n: float,
+                              radius: float):
+        """Setzt die Flaechen bekannter Gebaeude im Fenster auf null."""
+        from rasterio.features import rasterize
+        from rasterio.transform import from_origin
+
+        umkreis = Point(e, n).buffer(radius)
+        formen = [polygone[i].buffer(self.puffer) for i in baum.query(umkreis)]
+        if not formen:
+            return feld
+
+        maske = rasterize(
+            formen, out_shape=feld.shape,
+            transform=from_origin(x0, y_oben, self.raster, self.raster),
+            fill=0, default_value=1, dtype="uint8",
+        )
+        feld = feld.copy()
+        feld[maske == 1] = 0.0
+        return feld
+
+
+def vegetationshorizont(e: float, n: float, obs_z: float, feld, x0: float,
+                        y_oben: float, raster: float, dem: Gelaende,
+                        radius: float, schritt: float) -> np.ndarray:
+    """Maximaler Elevationswinkel der Vegetation je Azimut (360 Werte, Grad)."""
+    az = np.radians(np.arange(360, dtype="float64"))[:, None]
+    r = np.arange(schritt, radius + schritt, schritt)[None, :]
+
+    E = e + r * np.sin(az)
+    N = n + r * np.cos(az)
+
+    spalte = ((E - x0) / raster).astype(np.int32)
+    zeile = ((y_oben - N) / raster).astype(np.int32)
+    gueltig = ((spalte >= 0) & (spalte < feld.shape[1])
+               & (zeile >= 0) & (zeile < feld.shape[0]))
+
+    hoehe_ueber_grund = np.zeros(E.shape, dtype="float64")
+    hoehe_ueber_grund[gueltig] = feld[zeile[gueltig], spalte[gueltig]]
+
+    # Absolute Oberkante = Gelaendehoehe am Punkt plus Bewuchshoehe
+    boden = dem.abtasten(E.ravel(), N.ravel()).reshape(E.shape).astype("float64")
+    oberkante = boden + hoehe_ueber_grund
+
+    with np.errstate(invalid="ignore"):
+        elev = np.degrees(np.arctan2(oberkante - obs_z, r))
+    # Nur dort, wo tatsaechlich Bewuchs steht
+    elev = np.where((hoehe_ueber_grund > 0) & np.isfinite(elev), elev, -90.0)
+    return elev.max(axis=1)

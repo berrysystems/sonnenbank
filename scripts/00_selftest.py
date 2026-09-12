@@ -28,7 +28,8 @@ from shapely.strtree import STRtree
 
 import config as cfg
 from citygml import gebaeude_aus_datei
-from horizont import Gelaende, gebaeudehorizont, gelaendehorizont
+from horizont import (Gelaende, gebaeudehorizont, gelaendehorizont,
+                      profil_berechnen)
 from sun import sonnenstand
 
 FEHLER = []
@@ -92,6 +93,60 @@ with tempfile.TemporaryDirectory() as tmp:
     # Erdkruemmung liegt der Fernhorizont knapp darunter.
     pruefe("Hangwinkel nach Osten", hg[90], math.degrees(math.atan(0.10)), 0.35)
     pruefe("Abfall nach Westen", hg[270], -math.degrees(math.atan(0.10)), 0.5)
+
+print("\n3b) Vegetation aus dem nDOM50")
+with tempfile.TemporaryDirectory() as tmp:
+    from horizont import Vegetation, vegetationshorizont
+    ordner = Path(tmp) / "ndom"
+    ordner.mkdir()
+    e0, n0, boden = 399268.0, 5653776.0, 300.0
+    ost, nord = int(e0 // 1000), int(n0 // 1000)
+
+    # flaches Gelaende als 10-m-DEM
+    dem_pfad = Path(tmp) / "dem.tif"
+    with rasterio.open(dem_pfad, "w", driver="GTiff", height=300, width=300,
+                       count=1, dtype="float32", crs=cfg.CRS_UTM32,
+                       transform=from_origin((ost - 1) * 1000, (nord + 2) * 1000,
+                                             10, 10), nodata=np.nan) as dst:
+        dst.write(np.full((300, 300), boden, dtype="float32"), 1)
+    dem = Gelaende(dem_pfad)
+
+    # nDOM50: Baumreihe 18 m im Suedwesten, dazu ein Haus im Norden
+    raster = np.zeros((2000, 2000), dtype="float32")
+
+    def setzen(emin, emax, nmin, nmax, hoehe):
+        c0 = int((emin - ost * 1000) / 0.5); c1 = int((emax - ost * 1000) / 0.5)
+        r0 = int(((nord + 1) * 1000 - nmax) / 0.5)
+        r1 = int(((nord + 1) * 1000 - nmin) / 0.5)
+        raster[r0:r1, c0:c1] = hoehe
+
+    setzen(e0 - 60, e0 - 25, n0 - 55, n0 - 25, 18.0)
+    setzen(e0 - 15, e0 + 15, n0 + 20, n0 + 40, 12.0)
+    with rasterio.open(ordner / f"ndom50_32_{ost}_{nord}_1_nw_2023.tif", "w",
+                       driver="GTiff", height=2000, width=2000, count=1,
+                       dtype="float32", crs=cfg.CRS_UTM32,
+                       transform=from_origin(ost * 1000, (nord + 1) * 1000,
+                                             0.5, 0.5), nodata=0) as dst:
+        dst.write(raster, 1)
+
+    haus = Polygon([(e0 - 15, n0 + 20), (e0 + 15, n0 + 20),
+                    (e0 + 15, n0 + 40), (e0 - 15, n0 + 40)])
+    polygone, hoehen = [haus], np.array([boden + 12.0])
+    baum_index = STRtree(polygone)
+
+    veg = Vegetation(ordner, cfg.VEG_RASTER, cfg.VEG_MIN_HOEHE,
+                     cfg.GEBAEUDE_PUFFER)
+    pruefe("nDOM-Kacheln erkannt", len(veg.kacheln), 1, 0)
+
+    ergebnis = profil_berechnen(e0, n0, boden, dem, polygone, hoehen,
+                                baum_index, cfg, veg)
+    hart = np.array(ergebnis["horizont"]) / 10.0
+    mit = np.array(ergebnis["horizont_veg"]) / 10.0
+
+    erwartet_baum = math.degrees(math.atan2(boden + 18 - (boden + 1.2), 35))
+    pruefe("Baumhorizont nach Suedwesten", mit[225], erwartet_baum, 1.5)
+    pruefe("Bewuchs zaehlt Gebaeude nicht doppelt", mit[0] - hart[0], 0.0, 0.3)
+    pruefe("freie Richtung bleibt frei", mit[90], 0.0, 0.01)
 
 print("\n4) CityGML-Parser")
 GML = """<?xml version="1.0" encoding="UTF-8"?>

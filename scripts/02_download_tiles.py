@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+import re
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -28,19 +29,46 @@ import json  # noqa: E402
 KOPF = {"User-Agent": "sonnenbank-pipeline/1.0"}
 
 
-def index_lesen(url: str) -> dict[tuple[int, int], str]:
-    """Liest den XML-Index eines OpenGeodata-Verzeichnisses.
+def namen_aus_index(rohdaten: bytes) -> list[str]:
+    """Dateinamen aus einem Verzeichnisindex holen.
 
-    Rueckgabe: (ost_km, nord_km) -> Dateiname
+    OpenGeodata liefert je nach Produkt und Aushandlung XML oder JSON, deshalb
+    wird beides versucht und als letzte Stufe der Rohtext durchsucht.
     """
+    text = rohdaten.decode("utf-8", errors="replace")
+
+    try:
+        daten = json.loads(text)
+        namen = [d["name"] for d in daten.get("files", []) if "name" in d]
+        if namen:
+            return namen
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        pass
+
+    try:
+        wurzel = ET.fromstring(rohdaten)
+        namen = [el.get("name", "") for el in wurzel.iter("file")]
+        if any(namen):
+            return [n for n in namen if n]
+    except ET.ParseError:
+        pass
+
+    return re.findall(r'[\w.-]+_\d{3}_\d{4}_[\w.-]*\.(?:gml|tif|tiff|laz)', text)
+
+
+def index_lesen(url: str) -> dict[tuple[int, int], str]:
+    """Verzeichnisindex einlesen. Rueckgabe: (ost_km, nord_km) -> Dateiname."""
     print(f"Index laden: {url}")
     anfrage = urllib.request.Request(url, headers=KOPF)
     with urllib.request.urlopen(anfrage, timeout=120) as antwort:
-        wurzel = ET.fromstring(antwort.read())
+        namen = namen_aus_index(antwort.read())
+
+    if not namen:
+        sys.exit(f"Index von {url} lieferte keine Dateinamen. "
+                 "Vermutlich hat sich das Format geaendert.")
 
     karte = {}
-    for datei in wurzel.iter("file"):
-        name = datei.get("name", "")
+    for name in namen:
         teile = name.split("_")
         # LoD2_32_374_5654_1_NW.gml  /  dgm1_32_374_5654_1_nw_2022.tif
         if len(teile) < 4:
@@ -107,7 +135,10 @@ def herunterladen(basis_url: str, index: dict, kacheln: set, ziel: Path,
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--nur", choices=["lod2", "dgm1"], help="nur ein Produkt laden")
+    p.add_argument("--nur", choices=["lod2", "dgm1", "ndom50"],
+                   help="nur ein Produkt laden")
+    p.add_argument("--ohne-vegetation", action="store_true",
+                   help="nDOM50 ueberspringen")
     args = p.parse_args()
 
     baenke = json.loads(cfg.BENCHES_FILE.read_text(encoding="utf-8"))
@@ -125,6 +156,12 @@ def main():
               f"(ca. {len(kacheln) * 2 / 1024:.1f} GB)")
         herunterladen(cfg.URL_DGM1, index_lesen(cfg.URL_DGM1),
                       kacheln, cfg.TILES_DGM)
+
+    if args.nur in (None, "ndom50") and not args.ohne_vegetation:
+        kacheln = kacheln_fuer(baenke, cfg.RADIUS_VEGETATION)
+        print(f"\nnDOM50: {len(kacheln)} Kacheln noetig")
+        herunterladen(cfg.URL_NDOM50, index_lesen(cfg.URL_NDOM50),
+                      kacheln, cfg.TILES_NDOM)
 
 
 if __name__ == "__main__":

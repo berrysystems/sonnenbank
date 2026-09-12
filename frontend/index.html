@@ -62,12 +62,26 @@ body{
 .marke{position:absolute;left:14px;top:12px;color:#fff;opacity:.62;
   font-size:12px;letter-spacing:.08em}
 
+/* Lesehilfe und Legende */
+.lesehilfe{margin:12px 2px 0;font-size:14px;color:#4A5155;max-width:64ch}
+.legende{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-wrap:wrap;
+  gap:6px 20px;font-size:13px;color:var(--stein)}
+.legende li{display:flex;align-items:center;gap:7px}
+.legende i{width:16px;height:11px;flex:none;border-radius:1px}
+.pr-bau{background:#191D20}
+.pr-baum{background:repeating-linear-gradient(135deg,#3D5B45 0 3px,#2E4739 3px 6px)}
+.pr-bahn{height:0;border-top:2px dashed var(--sonne);border-radius:0}
+.pr-jetzt{width:12px;height:12px;border-radius:50%;background:#FFD64A;
+  border:2px solid var(--sonne)}
+
 /* Status */
 .stand{display:flex;flex-wrap:wrap;gap:6px 26px;align-items:baseline;
   margin:16px 2px 4px}
 .stand .satz{font-size:clamp(20px,3vw,27px);font-weight:600;letter-spacing:-.015em;
   margin:0}
 .stand .neben{color:var(--stein);font-size:14px}
+.wetter{display:block;margin:6px 2px 0;font-size:14px;color:#4A5155}
+.wetter b{font-weight:600}
 
 /* Zeitregler */
 .regler{margin-top:18px;display:flex;gap:14px;align-items:center}
@@ -115,8 +129,8 @@ body{
 
 <header class="kopf">
   <h1>Sonne an der Bank</h1>
-  <p>Berechnet aus LoD2-Gebäuden und dem DGM1 des Landes NRW. Zieh den Regler,
-     um den Tag abzufahren.</p>
+  <p>Berechnet aus Gebäuden, Gelände und Baumbestand des Landes NRW.
+     Zieh den Regler, um den Tag abzufahren.</p>
 </header>
 
 <section id="start" class="leer">
@@ -147,10 +161,22 @@ body{
       <div class="marke" id="marke"></div>
     </div>
 
+    <p class="lesehilfe">Der Rundumblick von der Bank, aufgeklappt von Nord
+       über Süd zurück nach Nord. Was die Sonne verdecken kann, steht als
+       Silhouette da; die gestrichelte Linie ist ihre Bahn an diesem Tag.</p>
+
+    <ul class="legende">
+      <li><i class="pr-bau"></i>Gebäude und Gelände</li>
+      <li><i class="pr-baum"></i>Bäume</li>
+      <li><i class="pr-bahn"></i>Bahn der Sonne heute</li>
+      <li><i class="pr-jetzt"></i>Sonne zur eingestellten Zeit</li>
+    </ul>
+
     <div class="stand">
       <p class="satz" id="satz"></p>
       <span class="neben" id="neben"></span>
     </div>
+    <span class="wetter" id="wetter"></span>
 
     <div class="regler">
       <span class="uhr" id="uhr">–</span>
@@ -170,14 +196,23 @@ body{
       <div><b id="z-hoehe">–</b><span>Sonnenhöhe</span></div>
       <div><b id="z-horizont">–</b><span>Horizont in dieser Richtung</span></div>
       <div><b id="z-verdeckung">–</b><span>höchste Verdeckung</span></div>
+      <div><b id="z-bewuchs">–</b><span>davon durch Bäume</span></div>
     </div>
   </section>
 </main>
 </div>
 
 <script type="module">
-import { istSonnig, sonnenstand, refraktion, horizontBei, tagesverlauf,
-         naechsterWechsel, sonnenstunden, dekodiereHorizont } from './sonnenbank.js';
+import { sonnenstand, refraktion, horizontBei, lageAn, tagesverlaufBewuchs,
+         dekodiereHorizont, wolken, bedeckungZu, bedeckungText }
+  from './sonnenbank.js';
+
+const FARBE = { sonne:'#F2B705', bewuchs:'#6E8F5E', schatten:'#333A3E',
+                nacht:'#1A1F2B' };
+const WORT  = { sonne:'In der Sonne', bewuchs:'Im Baumschatten',
+                schatten:'Im Schatten', nacht:'Die Sonne ist unter' };
+const KURZ  = { sonne:'Sonne', bewuchs:'Baumschatten',
+                schatten:'Schatten', nacht:'Sonnenuntergang' };
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -226,14 +261,18 @@ $('dateiwahl').addEventListener('change', async (ereignis) => {
 
 function starten(horizonte, meta) {
   const namen = new Map(meta.map((m) => [m.id, m.title || m.address]));
+  const richtungen = new Map(meta.map((m) => [m.id, m.bearing ?? null]));
 
   // Kompaktes Bundle: { version, benches: { id: { h, lat, lon } } }
   if (horizonte && horizonte.benches) horizonte = horizonte.benches;
 
   baenke = Object.entries(horizonte).map(([id, eintrag]) => ({
     id,
-    name: namen.get(id) || id,
+    name: namen.get(id) || eintrag.title || eintrag.address || id,
     profil: eintrag.h ? dekodiereHorizont(eintrag.h) : eintrag.horizont,
+    profilVeg: eintrag.v ? dekodiereHorizont(eintrag.v)
+                         : (eintrag.horizont_veg || null),
+    bearing: eintrag.b ?? eintrag.bearing ?? richtungen.get(id) ?? null,
     lat: eintrag.lat,
     lon: eintrag.lon,
     maxGebaeude: eintrag.max_gebaeude,
@@ -261,8 +300,11 @@ function listeZeichnen() {
     if (filter && !bank.name.toLowerCase().includes(filter)) continue;
 
     const zeit = zeitpunkt();
-    const zustand = istSonnig(bank.profil, bank.lat, bank.lon, zeit);
-    const stunden = sonnenstunden(bank.profil, bank.lat, bank.lon, heute);
+    const zustand = lageAn(bank.profil, bank.profilVeg, bank.lat, bank.lon, zeit);
+    const stunden = tagesverlaufBewuchs(bank.profil, bank.profilVeg,
+        bank.lat, bank.lon, heute, 6)
+      .filter((p) => p.lage === 'sonne')
+      .reduce((summe, p) => summe + (p.bis - p.von) / 3600000, 0);
 
     const knopf = document.createElement('button');
     knopf.className = 'bank';
@@ -270,7 +312,7 @@ function listeZeichnen() {
     knopf.setAttribute('role', 'option');
     knopf.setAttribute('aria-current', String(bank.id === aktiv));
     knopf.innerHTML =
-      `<span class="punkt${zustand.sonnig ? ' sonne' : ''}"></span>`
+      `<span class="punkt" style="background:${FARBE[zustand.lage]}"></span>`
       + `<span class="name"></span>`
       + `<span class="std">${stunden.toFixed(1)} h</span>`;
     knopf.querySelector('.name').textContent = bank.name;
@@ -330,7 +372,7 @@ function zeichnen() {
   const zeit = zeitpunkt();
   const { azimut, hoehe } = sonnenstand(zeit, bank.lat, bank.lon);
   const sichtbar = hoehe + refraktion(hoehe);
-  const zustand = istSonnig(bank.profil, bank.lat, bank.lon, zeit);
+  const zustand = lageAn(bank.profil, bank.profilVeg, bank.lat, bank.lon, zeit);
 
   const svg = $('panorama');
   svg.textContent = '';
@@ -342,6 +384,11 @@ function zeichnen() {
         <stop offset="0" stop-color="${oben}"/>
         <stop offset="1" stop-color="${unten}"/>
       </linearGradient>
+      <pattern id="laub" width="7" height="7" patternTransform="rotate(45)"
+               patternUnits="userSpaceOnUse">
+        <rect width="7" height="7" fill="#2E4739" fill-opacity=".85"/>
+        <rect width="3" height="7" fill="#3D5B45" fill-opacity=".85"/>
+      </pattern>
       <radialGradient id="schein">
         <stop offset="0" stop-color="#F2B705" stop-opacity=".55"/>
         <stop offset="1" stop-color="#F2B705" stop-opacity="0"/>
@@ -380,79 +427,157 @@ function zeichnen() {
   }
   pfad(svg, stueck);
 
-  // Horizontsilhouette
-  let d = `M0 ${H}`;
-  for (let az = 0; az <= 360; az++) {
-    d += ` L${xVonAzimut(az === 360 ? 359.999 : az).toFixed(2)} `
-       + `${yVonHoehe(bank.profil[az % 360] / 10).toFixed(2)}`;
+  // Bewuchs zuerst, damit die harte Silhouette davor liegt
+  if (bank.profilVeg) {
+    const gruen = silhouettePfad(bank.profilVeg);
+    gruen.setAttribute('fill', 'url(#laub)');
+    svg.appendChild(gruen);
   }
-  d += ` L${W} ${H} Z`;
-  const silhouette = document.createElementNS(SVG_NS, 'path');
-  silhouette.setAttribute('d', d);
+
+  const silhouette = silhouettePfad(bank.profil);
   silhouette.setAttribute('fill', '#191D20');
-  silhouette.setAttribute('fill-opacity', '.94');
+  silhouette.setAttribute('fill-opacity', '.95');
   svg.appendChild(silhouette);
+
+  // Erst nach den Silhouetten, sonst verschwinden die Marken dahinter
+  markiereRandpunkte(svg, bank, zeit);
+
+  // Blickrichtung der Bank, abgeleitet aus den Kompassdaten der Fotos
+  if (bank.bearing !== null && bank.bearing !== undefined) {
+    const bx = xVonAzimut(bank.bearing);
+    const pfeil = document.createElementNS(SVG_NS, 'path');
+    pfeil.setAttribute('d', `M${bx - 7} ${H - 3} L${bx} ${H - 14} L${bx + 7} ${H - 3} Z`);
+    pfeil.setAttribute('fill', '#E9EAE4');
+    pfeil.setAttribute('fill-opacity', '.8');
+    svg.appendChild(pfeil);
+    text(svg, bx + 11, H - 5, 'Blickrichtung', '#E9EAE4', .7, 11);
+  }
 
   // Sonne
   if (sichtbar > -6) {
     const sx = xVonAzimut(azimut), sy = yVonHoehe(sichtbar);
-    if (zustand.sonnig) kreis(svg, sx, sy, 62, 'url(#schein)');
-    const scheibe = kreis(svg, sx, sy, 11,
-      zustand.sonnig ? '#FFD64A' : '#6E757A');
+    const frei = zustand.lage === 'sonne';
+    if (frei) kreis(svg, sx, sy, 62, 'url(#schein)');
+    // Senkrechte vom Stand der Sonne zum Horizont: zeigt, worauf man schaut
+    linie(svg, sx, sy, sx, H, '#fff', .28);
+    const fuellung = frei ? '#FFD64A'
+      : (zustand.lage === 'bewuchs' ? '#A8BE8E' : '#6E757A');
+    const scheibe = kreis(svg, sx, sy, 11, fuellung);
     scheibe.id = 'sonnenscheibe';
-    scheibe.setAttribute('stroke', zustand.sonnig ? '#F2B705' : '#4C5358');
+    scheibe.setAttribute('stroke', frei ? '#F2B705' : '#4C5358');
     scheibe.setAttribute('stroke-width', '2');
   }
 
   $('marke').textContent = bank.name;
   standTexte(bank, zustand, sichtbar, azimut, zeit);
   bandZeichnen(bank, zeit);
+  wetterZeigen(bank, zustand, zeit);
 }
 
 function standTexte(bank, zustand, sichtbar, azimut, zeit) {
-  const uhrzeit = zeit.toLocaleTimeString('de-DE',
+  $('uhr').textContent = zeit.toLocaleTimeString('de-DE',
     { hour: '2-digit', minute: '2-digit' });
-  $('uhr').textContent = uhrzeit;
 
-  const wechsel = naechsterWechsel(bank.profil, bank.lat, bank.lon, zeit);
-  const bis = wechsel
-    ? wechsel.zeitpunkt.toLocaleTimeString('de-DE',
+  const phasen = tagesverlaufBewuchs(bank.profil, bank.profilVeg,
+                                     bank.lat, bank.lon, zeit, 2);
+  const naechste = phasen.find((p) => p.von > zeit && p.lage !== zustand.lage);
+  const um = naechste
+    ? naechste.von.toLocaleTimeString('de-DE',
         { hour: '2-digit', minute: '2-digit' })
     : null;
 
-  if (sichtbar <= 0) {
-    $('satz').textContent = 'Die Sonne ist unter';
-    $('neben').textContent = bis ? `Sonnenaufgang um ${bis}` : '';
-  } else if (zustand.sonnig) {
-    $('satz').textContent = 'In der Sonne';
-    $('neben').textContent = bis ? `Schatten ab ${bis}` : 'bis Sonnenuntergang';
+  $('satz').textContent = WORT[zustand.lage];
+  if (!um) {
+    $('neben').textContent = zustand.grund;
   } else {
-    $('satz').textContent = 'Im Schatten';
-    $('neben').textContent = bis ? `Sonne ab ${bis}` : 'den ganzen Tag';
+    $('neben').textContent = `${KURZ[naechste.lage]} ab ${um}`;
   }
 
-  $('z-stunden').textContent =
-    sonnenstunden(bank.profil, bank.lat, bank.lon, zeit).toFixed(1) + ' h';
-  $('z-hoehe').textContent = sichtbar > 0 ? sichtbar.toFixed(1) + '°' : '–';
+  const sonnig = phasen.filter((p) => p.lage === 'sonne')
+    .reduce((summe, p) => summe + (p.bis - p.von) / 3600000, 0);
+  const gruen = phasen.filter((p) => p.lage === 'bewuchs')
+    .reduce((summe, p) => summe + (p.bis - p.von) / 3600000, 0);
+
+  $('z-stunden').textContent = sonnig.toFixed(1) + ' h';
+  $('z-hoehe').textContent = sichtbar > 0 ? sichtbar.toFixed(1) + '\u00B0' : '\u2013';
   $('z-horizont').textContent =
-    horizontBei(bank.profil, azimut).toFixed(1) + '°';
+    horizontBei(bank.profilVeg || bank.profil, azimut).toFixed(1) + '\u00B0';
   $('z-verdeckung').textContent =
-    Math.max(bank.maxGebaeude ?? 0, bank.maxGelaende ?? 0).toFixed(1) + '°';
+    Math.max(bank.maxGebaeude ?? 0, bank.maxGelaende ?? 0).toFixed(1) + '\u00B0';
+  $('z-bewuchs').textContent = bank.profilVeg
+    ? gruen.toFixed(1) + ' h' : 'keine Daten';
+}
+
+/** Sonnenauf- und -untergang als kleine Marken an der Bahn. */
+function markiereRandpunkte(svg, bank, zeit) {
+  let vorher = null;
+  for (let m = 0; m <= 1440; m += 2) {
+    const t = new Date(zeit); t.setHours(Math.floor(m / 60), m % 60, 0, 0);
+    const s = sonnenstand(t, bank.lat, bank.lon);
+    const oben = s.hoehe + refraktion(s.hoehe) > 0;
+    if (vorher !== null && oben !== vorher) {
+      // Etwas oberhalb der Nulllinie, sonst liegt die Marke auf der Kante
+      const x = xVonAzimut(s.azimut), y = yVonHoehe(4);
+      kreis(svg, x, y, 3.5, '#F2B705').setAttribute('fill-opacity', '.9');
+      const beschriftung = (oben ? 'auf ' : 'unter ')
+        + t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      const el = text(svg, x, y - 9, beschriftung, '#F2B705', .9, 11);
+      // Am rechten Rand nach innen ausrichten
+      el.setAttribute('text-anchor', x > W - 70 ? 'end' : 'middle');
+    }
+    vorher = oben;
+  }
+}
+
+/** Silhouettenpfad aus einem Profil in Zehntelgrad. */
+function silhouettePfad(profil) {
+  let d = `M0 ${H}`;
+  for (let az = 0; az <= 360; az++) {
+    d += ` L${xVonAzimut(az === 360 ? 359.999 : az).toFixed(2)} `
+       + `${yVonHoehe(profil[az % 360] / 10).toFixed(2)}`;
+  }
+  const el = document.createElementNS(SVG_NS, 'path');
+  el.setAttribute('d', d + ` L${W} ${H} Z`);
+  return el;
+}
+
+/** Bewölkung von Open-Meteo, nachgeladen und dann eingeblendet. */
+async function wetterZeigen(bank, zustand, zeit) {
+  const feld = $('wetter');
+  const karte = await wolken(bank.lat, bank.lon);
+  if (bank.id !== aktiv) return;          // inzwischen umgeschaltet
+
+  const bedeckung = bedeckungZu(karte, zeit);
+  if (bedeckung === null) {
+    feld.textContent = bank.profilVeg ? '' : 'Ohne Baumbestand gerechnet.';
+    return;
+  }
+
+  const wort = bedeckungText(bedeckung);
+  if (zustand.lage === 'nacht') {
+    feld.innerHTML = `Vorhersage: <b>${wort}</b> (${bedeckung} % Bedeckung).`;
+  } else if (zustand.lage === 'sonne' && bedeckung >= 70) {
+    feld.innerHTML = `Die Sonne stünde frei, aber es ist <b>${wort}</b> `
+      + `(${bedeckung} % Bedeckung) – rechne nicht mit viel.`;
+  } else if (zustand.lage === 'sonne') {
+    feld.innerHTML = `Vorhersage: <b>${wort}</b> (${bedeckung} % Bedeckung).`;
+  } else {
+    feld.innerHTML = `Unabhängig davon: <b>${wort}</b> `
+      + `(${bedeckung} % Bedeckung).`;
+  }
 }
 
 function bandZeichnen(bank, zeit) {
   const schiene = $('schiene');
   schiene.textContent = '';
-  for (const phase of tagesverlauf(bank.profil, bank.lat, bank.lon, zeit, 4)) {
-    const anteil = (phase.bis - phase.von) / 86400000 * 100;
+  for (const phase of tagesverlaufBewuchs(bank.profil, bank.profilVeg,
+                                          bank.lat, bank.lon, zeit, 4)) {
     const teil = document.createElement('i');
-    teil.style.width = anteil + '%';
-    teil.style.background = phase.sonnig ? 'var(--sonne)' : 'var(--schiefer-hell)';
-    const von = phase.von.toLocaleTimeString('de-DE',
-      { hour: '2-digit', minute: '2-digit' });
-    const nach = phase.bis.toLocaleTimeString('de-DE',
-      { hour: '2-digit', minute: '2-digit' });
-    teil.title = `${phase.sonnig ? 'Sonne' : 'Schatten'} ${von}–${nach}`;
+    teil.style.width = (phase.bis - phase.von) / 86400000 * 100 + '%';
+    teil.style.background = FARBE[phase.lage];
+    const zeitraum = [phase.von, phase.bis].map((t) =>
+      t.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }));
+    teil.title = `${WORT[phase.lage]} ${zeitraum[0]}\u2013${zeitraum[1]}`;
     schiene.appendChild(teil);
   }
 }
@@ -476,6 +601,7 @@ function text(svg, x, y, inhalt, farbe, deckkraft, groesse) {
   el.setAttribute('font-family', 'inherit');
   el.textContent = inhalt;
   svg.appendChild(el);
+  return el;
 }
 
 function kreis(svg, cx, cy, r, fuellung) {

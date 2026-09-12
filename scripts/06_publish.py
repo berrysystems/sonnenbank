@@ -41,6 +41,35 @@ def dekodieren(text: str) -> list[float]:
     return [b / 2.0 for b in base64.b64decode(text)]
 
 
+def titel() -> None:
+    """Nur die oeffentlich unbedenklichen Felder fuer die Weboberflaeche.
+
+    Bewusst eine Positivliste: Nutzernamen, Fotos und Meldungen bleiben drin
+    im Firestore und haben auf einer statischen Seite nichts zu suchen.
+    """
+    if not cfg.BENCHES_FILE.exists():
+        sys.exit(f"Fehlt: {cfg.BENCHES_FILE} - erst Schritt 1 laufen lassen")
+
+    baenke = json.loads(cfg.BENCHES_FILE.read_text(encoding="utf-8"))
+    oeffentlich = []
+    for b in baenke:
+        satz = {"id": b["id"]}
+        for feld in ("title", "address"):
+            if b.get(feld):
+                satz[feld] = b[feld]
+        if b.get("bearing") is not None:
+            satz["bearing"] = b["bearing"]
+        oeffentlich.append(satz)
+
+    ziel = cfg.DATA / "benches.public.json"
+    ziel.write_text(json.dumps(oeffentlich, ensure_ascii=False,
+                               separators=(",", ":")), encoding="utf-8")
+    ohne = sum(1 for b in oeffentlich if "title" not in b and "address" not in b)
+    print(f"{len(oeffentlich)} Titel -> {ziel}")
+    if ohne:
+        print(f"  {ohne} Baenke ohne title und address, sie erscheinen mit ID")
+
+
 def profile_lesen() -> dict:
     if not cfg.HORIZONS_FILE.exists():
         sys.exit(f"Fehlt: {cfg.HORIZONS_FILE} - erst Schritt 4 laufen lassen")
@@ -49,14 +78,18 @@ def profile_lesen() -> dict:
 
 def bundle(profile: dict) -> None:
     """Kompaktes JSON fuer statisches Hosting."""
-    klein = {
-        bank_id: {
+    klein = {}
+    for bank_id, eintrag in profile.items():
+        satz = {
             "h": kodieren(eintrag["horizont"]),
             "lat": eintrag["lat"],
             "lon": eintrag["lon"],
         }
-        for bank_id, eintrag in profile.items()
-    }
+        if "horizont_veg" in eintrag:
+            satz["v"] = kodieren(eintrag["horizont_veg"])
+        if eintrag.get("bearing") is not None:
+            satz["b"] = round(eintrag["bearing"])
+        klein[bank_id] = satz
     nutzlast = {"version": cfg.HORIZONT_VERSION, "benches": klein}
     cfg.BUNDLE_FILE.write_text(
         json.dumps(nutzlast, separators=(",", ":")), encoding="utf-8")
@@ -86,6 +119,8 @@ def nach_firestore(profile: dict, trockenlauf: bool) -> None:
             cfg.FELD_HORIZONT: kodieren(eintrag["horizont"]),
             cfg.FELD_HORIZONT_VERSION: cfg.HORIZONT_VERSION,
         }
+        if "horizont_veg" in eintrag:
+            daten[cfg.FELD_HORIZONT_VEG] = kodieren(eintrag["horizont_veg"])
         if trockenlauf:
             if geschrieben < 2:
                 print(f"  {bank_id}: {daten[cfg.FELD_HORIZONT][:48]}... "
@@ -123,12 +158,19 @@ def main():
                    help="Profile in die Bank-Dokumente schreiben")
     p.add_argument("--bundle", action="store_true",
                    help="statisches JSON fuer Hosting erzeugen")
+    p.add_argument("--titel", action="store_true",
+                   help="data/benches.public.json mit den Banknamen erzeugen")
     p.add_argument("--trockenlauf", action="store_true",
                    help="nichts schreiben, nur zeigen was passieren wuerde")
     args = p.parse_args()
 
-    if not (args.firestore or args.bundle):
-        p.error("Waehle --firestore und/oder --bundle")
+    if not (args.firestore or args.bundle or args.titel):
+        p.error("Waehle --firestore, --bundle und/oder --titel")
+
+    if args.titel:
+        titel()
+        if not (args.firestore or args.bundle):
+            return
 
     profile = profile_lesen()
     print(f"{len(profile)} Profile aus {cfg.HORIZONS_FILE}")

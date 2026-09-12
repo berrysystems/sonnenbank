@@ -150,3 +150,115 @@ export function dekodiereHorizont(base64) {
   for (let i = 0; i < 360; i++) profil[i] = roh.charCodeAt(i) * 5;
   return profil;
 }
+
+/* ------------------------------------------------------------------ Bewuchs */
+
+/**
+ * Zustand mit getrenntem Bewuchsprofil.
+ * Ein Baum ist kein Haus: durch eine Krone kommt je nach Art und Jahreszeit
+ * noch ein guter Teil des Lichts, hinter einer Wand kommt nichts. Deshalb
+ * drei Zustände statt zwei.
+ *
+ * @param {number[]} hart   Profil aus Gebäuden und Gelände
+ * @param {number[]|null} mitBewuchs Profil inklusive Vegetation
+ * @returns {{lage: 'sonne'|'bewuchs'|'schatten'|'nacht', hoehe, azimut,
+ *            horizont, grund}}
+ */
+export function lageAn(hart, mitBewuchs, lat, lon, datum = new Date()) {
+  const { azimut, hoehe } = sonnenstand(datum, lat, lon);
+  const sichtbar = hoehe + refraktion(hoehe);
+  const hHart = horizontBei(hart, azimut);
+  const hVeg = mitBewuchs ? horizontBei(mitBewuchs, azimut) : hHart;
+
+  let lage, grund;
+  if (sichtbar <= 0) {
+    lage = 'nacht';
+    grund = 'Die Sonne steht unter dem Horizont';
+  } else if (sichtbar <= hHart) {
+    lage = 'schatten';
+    grund = 'Gebäude oder Gelände stehen im Weg';
+  } else if (sichtbar <= hVeg) {
+    lage = 'bewuchs';
+    grund = 'Bäume stehen im Weg, etwas Licht kommt durch';
+  } else {
+    lage = 'sonne';
+    grund = 'Freie Sicht zur Sonne';
+  }
+
+  return { lage, hoehe: sichtbar, azimut, horizont: hVeg, grund };
+}
+
+/** Phasen eines Tages mit den drei Zuständen. */
+export function tagesverlaufBewuchs(hart, mitBewuchs, lat, lon,
+                                    tag = new Date(), schrittMinuten = 4) {
+  const start = new Date(tag);
+  start.setHours(0, 0, 0, 0);
+  const ende = new Date(start.getTime() + 86400000);
+
+  const phasen = [];
+  let aktuell = null;
+  let von = new Date(start);
+
+  for (let t = new Date(start); t < ende; t = new Date(t.getTime() + schrittMinuten * 60000)) {
+    const lage = lageAn(hart, mitBewuchs, lat, lon, t).lage;
+    if (aktuell === null) {
+      aktuell = lage;
+    } else if (lage !== aktuell) {
+      phasen.push({ von, bis: new Date(t), lage: aktuell });
+      von = new Date(t);
+      aktuell = lage;
+    }
+  }
+  phasen.push({ von, bis: ende, lage: aktuell });
+  return phasen;
+}
+
+/* ------------------------------------------------------------------ Wolken */
+
+const wolkenSpeicher = new Map();
+
+/**
+ * Stündliche Bewölkung von Open-Meteo (frei, ohne Schlüssel).
+ * Die Rechnung sagt, ob die Sonne frei stünde – erst die Bewölkung sagt,
+ * ob sie auch scheint.
+ * @returns {Promise<Map<string, number>|null>} ISO-Stunde → Bedeckung in %
+ */
+export async function wolken(lat, lon) {
+  const schluessel = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  if (wolkenSpeicher.has(schluessel)) return wolkenSpeicher.get(schluessel);
+
+  const url = 'https://api.open-meteo.com/v1/forecast'
+    + `?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`
+    + '&hourly=cloud_cover&timezone=auto&forecast_days=2';
+
+  const versprechen = fetch(url)
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((d) => {
+      const karte = new Map();
+      d.hourly.time.forEach((t, i) => karte.set(t, d.hourly.cloud_cover[i]));
+      return karte;
+    })
+    .catch(() => null);
+
+  wolkenSpeicher.set(schluessel, versprechen);
+  return versprechen;
+}
+
+/** Bedeckung zur gegebenen Stunde, oder null wenn keine Vorhersage vorliegt. */
+export function bedeckungZu(karte, datum) {
+  if (!karte) return null;
+  const p = (n) => String(n).padStart(2, '0');
+  const schluessel = `${datum.getFullYear()}-${p(datum.getMonth() + 1)}-`
+    + `${p(datum.getDate())}T${p(datum.getHours())}:00`;
+  return karte.has(schluessel) ? karte.get(schluessel) : null;
+}
+
+/** Bewölkung in Worten, wie es ein Mensch sagen würde. */
+export function bedeckungText(prozent) {
+  if (prozent === null) return null;
+  if (prozent < 15) return 'klar';
+  if (prozent < 40) return 'leicht bewölkt';
+  if (prozent < 70) return 'wechselnd bewölkt';
+  if (prozent < 90) return 'stark bewölkt';
+  return 'bedeckt';
+}
