@@ -1,0 +1,30 @@
+# Dependabot: haelt Abhaengigkeiten aktuell und meldet Sicherheitsluecken.
+# Kleine Updates (minor/patch) kommen gesammelt in einem PR pro Woche,
+# grosse Versionsspruenge (major) einzeln, damit sie bewusst geprueft werden.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directories:
+      - "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    groups:
+      minor-und-patch:
+        update-types: ["minor", "patch"]
+    labels: ["dependencies"]
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+    schedule:
+      interval: "monthly"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+    labels: ["dependencies"]
